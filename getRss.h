@@ -1,5 +1,4 @@
 #include <linux/ioctl.h>
-#include <unistd.h>
 
 static struct module_values {
     pid_t pid;
