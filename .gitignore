@@ -1,0 +1,13 @@
+.*
+!.gitignore
+*.o
+*.o.*
+*.ko
+*.ko.*
+*.mod.c
+*.mod
+*.order
+Module.symvers
+Module.markers
+*-test
+tests.out
