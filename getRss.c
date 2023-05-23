@@ -9,7 +9,7 @@
 #include <linux/mm.h>
 #include <linux/mm_types.h>
 #include <linux/pid.h>
-#include <linux/task_mmu.c>
+#include <linux/pagewalk.h>
 #include "getRss.h"
 
 MODULE_LICENSE("GPL v2");
