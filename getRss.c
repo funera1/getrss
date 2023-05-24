@@ -11,6 +11,7 @@
 #include <linux/pid.h>
 #include <linux/pagewalk.h>
 #include "getRss.h"
+#include "task_mmu.h"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("funera1");
@@ -90,7 +91,7 @@ static long module_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     memset(&mss, 0, sizeof(mss));
 
     my_smap_gather_stats(vma, &mss, val->addr_start, val->addr_end);
-    return mss->resident;
+    return mss.resident;
 }
 
 static struct file_operations module_fops = {
