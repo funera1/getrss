@@ -1,38 +1,65 @@
-#include "getRss.h"
-#include "minimum_task_mmu.h"
+#include <linux/ioctl.h>
+#include <linux/cdev.h>
+#include <linux/fs.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/random.h>
+#include <linux/slab.h>
+#include <linux/uaccess.h>
+#include <linux/sched.h>
+#include <linux/mm.h>
+#include <linux/mm_types.h>
+#include <linux/pid.h>
+#include <linux/pagewalk.h>
+#include <linux/pagemap.h>
+#include <linux/kallsyms.h>
+#include <linux/compiler-gcc.h>
+#include <linux/version.h>
+#include "module.h"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("funera1");
 
-#define DRIVER_NAME "getRss"
+#define DRIVER_NAME "rss_range"
 #define DRIVER_MAJOR 64
 
-// walk_page_range
-typedef int (*walk_page_range_t)(struct mm_struct *mm, unsigned long start,
-        unsigned long end, const struct mm_walk_ops *ops, void *private);
-walk_page_range_t walk_page_range_ptr;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
+#define KPROBE_LOOKUP 1
+#include <linux/kprobes.h>
+static struct kprobe kp = {
+    .symbol_name = "kallsyms_lookup_name"
+};
+#endif
+
+extern walk_page_range_t walk_page_range_ptr;
 #define walk_page_range walk_page_range_ptr
-// smaps_pte_hole
-typedef int (*smaps_pte_hole_t)(unsigned long addr, unsigned long end,
-			  __always_unused int depth, struct mm_walk *walk);
-smaps_pte_hole_t smaps_pte_hole_ptr;
+extern smaps_pte_hole_t smaps_pte_hole_ptr;
 #define smaps_pte_hole smaps_pte_hole_ptr
-// smaps_pte_range
-// typedef int (*smaps_pte_range_t)(pmd_t *pmd, unsigned long addr, unsigned long end,
-// 			   struct mm_walk *walk);
-// smaps_pte_range_t smaps_pte_range_ptr;
-// #define smaps_pte_range smaps_pte_range_ptr
+extern smaps_pte_range_t smaps_pte_range_ptr;
+#define smaps_pte_range smaps_pte_range_ptr
+extern smaps_hugetlb_range_t smaps_hugetlb_range_ptr;
+#define smaps_hugetlb_range smaps_hugetlb_range_ptr
+
 
 static int resolve_non_exported_symbols(void)
 {
+#ifdef KPROBE_LOOKUP
+    typedef unsigned long (*kallsyms_lookup_name_t)(const char *name);
+    kallsyms_lookup_name_t kallsyms_lookup_name;
+    register_kprobe(&kp);
+    kallsyms_lookup_name = (kallsyms_lookup_name_t) kp.addr;
+    unregister_kprobe(&kp);
+#endif
     walk_page_range_ptr = 
         (walk_page_range_t)kallsyms_lookup_name("walk_page_range");
     smaps_pte_hole_ptr = 
         (smaps_pte_hole_t)kallsyms_lookup_name("smaps_pte_hole");
-    // smaps_pte_range_ptr = 
-    //     (smaps_pte_range_t)kallsyms_lookup_name("smaps_pte_range");
+    smaps_pte_range_ptr = 
+        (smaps_pte_range_t)kallsyms_lookup_name("smaps_pte_range");
+    smaps_hugetlb_range_ptr = 
+        (smaps_hugetlb_range_t)kallsyms_lookup_name("smaps_hugetlb_range");
 
-    if (!walk_page_range_ptr || !smaps_pte_hole_ptr) {
+    if (!walk_page_range_ptr || !smaps_pte_hole_ptr || !smaps_pte_range_ptr || !smaps_hugetlb_range_ptr) {
         return -ENOENT;
     }
 
@@ -42,6 +69,10 @@ static int resolve_non_exported_symbols(void)
 static void my_smap_gather_stats(struct vm_area_struct *vma,
         struct mem_size_stats *mss, unsigned long start, unsigned long end)
 {
+    struct mm_walk_ops smaps_walk_ops = {
+        .pmd_entry		= smaps_pte_range_ptr,
+        .hugetlb_entry		= smaps_hugetlb_range_ptr,
+    };
 	const struct mm_walk_ops *ops = &smaps_walk_ops;
 
 	/* Invalid start */
@@ -80,6 +111,7 @@ static void my_smap_gather_stats(struct vm_area_struct *vma,
  */
 static long module_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) 
 {
+
     struct module_values* val = (struct module_values *)arg;
 
     int res = resolve_non_exported_symbols();
@@ -119,7 +151,7 @@ static struct file_operations module_fops = {
 
 static int __init module_initialize(void)
 {
-    printk("GetRss_init\n");
+    printk("Init rss_range\n");
     /* ★ カーネルに、本ドライバを登録する */
     register_chrdev(DRIVER_MAJOR, DRIVER_NAME, &module_fops);
     return 0;
@@ -139,7 +171,7 @@ static int __init module_initialize(void)
 
 static void __exit module_cleanup(void)
 {
-    printk("GetRss_exit\n");
+    printk("Exit rss_range\n");
     unregister_chrdev(DRIVER_MAJOR, DRIVER_NAME);
   // cdev_del(&c_dev);
   // unregister_chrdev_region(dev_id, 1);
