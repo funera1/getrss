@@ -76,8 +76,10 @@ static void my_smap_gather_stats(struct vm_area_struct *vma,
 	const struct mm_walk_ops *ops = &smaps_walk_ops;
 
 	/* Invalid start */
-	if (start >= vma->vm_end)
+	if (start >= vma->vm_end) {
+        printk("start >= vma->vm_end\n");
 		return;
+    }
 
 #ifdef CONFIG_SHMEM
 	// if (vma->vm_file && shmem_mapping(vma->vm_file->f_mapping)) {
@@ -102,7 +104,12 @@ static void my_smap_gather_stats(struct vm_area_struct *vma,
 	// }
 #endif
 	/* mmap_lock is held in m_start */
+    // TODO: start, endの範囲チェック
+    if (end > vma->vm_end)
+        end = vma->vm_end;
+    printk("Start walk_page_range\n");
     walk_page_range(vma->vm_mm, start, end, ops, mss);
+    printk("End walk_page_range\n");
 }
 
 /*
