@@ -1,17 +1,5 @@
-#include <linux/cdev.h>
-#include <linux/fs.h>
-#include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/random.h>
-#include <linux/slab.h>
-#include <linux/uaccess.h>
-#include <linux/sched.h>
-#include <linux/mm.h>
-#include <linux/mm_types.h>
-#include <linux/pid.h>
-#include <linux/pagewalk.h>
 #include "getRss.h"
-#include "task_mmu.h"
+#include "minimum_task_mmu.h"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("funera1");
@@ -19,14 +7,36 @@ MODULE_AUTHOR("funera1");
 #define DRIVER_NAME "getRss"
 #define DRIVER_MAJOR 64
 
-static int module_open(struct inode *inode, struct file *filp) {
-  printk("'module_open' called\n");
-  return 0;
-}
+// walk_page_range
+typedef int (*walk_page_range_t)(struct mm_struct *mm, unsigned long start,
+        unsigned long end, const struct mm_walk_ops *ops, void *private);
+walk_page_range_t walk_page_range_ptr;
+#define walk_page_range walk_page_range_ptr
+// smaps_pte_hole
+typedef int (*smaps_pte_hole_t)(unsigned long addr, unsigned long end,
+			  __always_unused int depth, struct mm_walk *walk);
+smaps_pte_hole_t smaps_pte_hole_ptr;
+#define smaps_pte_hole smaps_pte_hole_ptr
+// smaps_pte_range
+// typedef int (*smaps_pte_range_t)(pmd_t *pmd, unsigned long addr, unsigned long end,
+// 			   struct mm_walk *walk);
+// smaps_pte_range_t smaps_pte_range_ptr;
+// #define smaps_pte_range smaps_pte_range_ptr
 
-static int module_close(struct inode *inode, struct file *filp) {
-  printk("'module_close' called\n");
-  return 0;
+static int resolve_non_exported_symbols(void)
+{
+    walk_page_range_ptr = 
+        (walk_page_range_t)kallsyms_lookup_name("walk_page_range");
+    smaps_pte_hole_ptr = 
+        (smaps_pte_hole_t)kallsyms_lookup_name("smaps_pte_hole");
+    // smaps_pte_range_ptr = 
+    //     (smaps_pte_range_t)kallsyms_lookup_name("smaps_pte_range");
+
+    if (!walk_page_range_ptr || !smaps_pte_hole_ptr) {
+        return -ENOENT;
+    }
+
+    return 0;
 }
 
 static void my_smap_gather_stats(struct vm_area_struct *vma,
@@ -39,26 +49,26 @@ static void my_smap_gather_stats(struct vm_area_struct *vma,
 		return;
 
 #ifdef CONFIG_SHMEM
-	if (vma->vm_file && shmem_mapping(vma->vm_file->f_mapping)) {
-		/*
-		 * For shared or readonly shmem mappings we know that all
-		 * swapped out pages belong to the shmem object, and we can
-		 * obtain the swap value much more efficiently. For private
-		 * writable mappings, we might have COW pages that are
-		 * not affected by the parent swapped out pages of the shmem
-		 * object, so we have to distinguish them during the page walk.
-		 * Unless we know that the shmem object (or the part mapped by
-		 * our VMA) has no swapped out pages at all.
-		 */
-		unsigned long shmem_swapped = shmem_swap_usage(vma);
-
-		if (!start && (!shmem_swapped || (vma->vm_flags & VM_SHARED) ||
-					!(vma->vm_flags & VM_WRITE))) {
-			mss->swap += shmem_swapped;
-		} else {
-			ops = &smaps_shmem_walk_ops;
-		}
-	}
+	// if (vma->vm_file && shmem_mapping(vma->vm_file->f_mapping)) {
+	// 	/*
+	// 	 * For shared or readonly shmem mappings we know that all
+	// 	 * swapped out pages belong to the shmem object, and we can
+	// 	 * obtain the swap value much more efficiently. For private
+	// 	 * writable mappings, we might have COW pages that are
+	// 	 * not affected by the parent swapped out pages of the shmem
+	// 	 * object, so we have to distinguish them during the page walk.
+	// 	 * Unless we know that the shmem object (or the part mapped by
+	// 	 * our VMA) has no swapped out pages at all.
+	// 	 */
+	// 	unsigned long shmem_swapped = shmem_swap_usage(vma);
+ // 
+	// 	if (!start && (!shmem_swapped || (vma->vm_flags & VM_SHARED) ||
+	// 				!(vma->vm_flags & VM_WRITE))) {
+	// 		mss->swap += shmem_swapped;
+	// 	} else {
+	// 		ops = &smaps_shmem_walk_ops;
+	// 	}
+	// }
 #endif
 	/* mmap_lock is held in m_start */
     walk_page_range(vma->vm_mm, start, end, ops, mss);
@@ -71,6 +81,11 @@ static void my_smap_gather_stats(struct vm_area_struct *vma,
 static long module_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) 
 {
     struct module_values* val = (struct module_values *)arg;
+
+    int res = resolve_non_exported_symbols();
+    if (res) {
+        return -ENOENT;
+    }
 
     // pidからvmaを取得
     struct pid* pid = find_get_pid(val->pid);
@@ -96,8 +111,6 @@ static long module_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 static struct file_operations module_fops = {
   .owner   = THIS_MODULE,
-  .open    = module_open,
-  .release = module_close,
   .unlocked_ioctl = module_ioctl
 };
 

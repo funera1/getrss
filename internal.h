@@ -5,6 +5,7 @@
  * Written by David Howells (dhowells@redhat.com)
  */
 
+#include <linux/module.h>
 #include <linux/proc_fs.h>
 #include <linux/proc_ns.h>
 #include <linux/refcount.h>
@@ -290,7 +291,7 @@ struct proc_maps_private {
 	struct task_struct *task;
 	struct mm_struct *mm;
 #ifdef CONFIG_MMU
-	struct vma_iterator iter;
+	// struct vma_iterator iter;
 #endif
 #ifdef CONFIG_NUMA
 	struct mempolicy *task_mempolicy;
