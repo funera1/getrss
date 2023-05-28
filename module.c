@@ -12,6 +12,7 @@
 #include <linux/pid.h>
 #include <linux/pagewalk.h>
 #include <linux/pagemap.h>
+#include <linux/shmem_fs.h>
 #include <linux/kallsyms.h>
 #include <linux/compiler-gcc.h>
 #include <linux/version.h>
@@ -31,15 +32,11 @@ static struct kprobe kp = {
 };
 #endif
 
-extern walk_page_range_t walk_page_range_ptr;
 #define walk_page_range walk_page_range_ptr
-extern smaps_pte_hole_t smaps_pte_hole_ptr;
 #define smaps_pte_hole smaps_pte_hole_ptr
-extern smaps_pte_range_t smaps_pte_range_ptr;
 #define smaps_pte_range smaps_pte_range_ptr
-extern smaps_hugetlb_range_t smaps_hugetlb_range_ptr;
 #define smaps_hugetlb_range smaps_hugetlb_range_ptr
-
+#define shmem_swap_usage shmem_swap_usage_ptr
 
 static int resolve_non_exported_symbols(void)
 {
@@ -58,8 +55,10 @@ static int resolve_non_exported_symbols(void)
         (smaps_pte_range_t)kallsyms_lookup_name("smaps_pte_range");
     smaps_hugetlb_range_ptr = 
         (smaps_hugetlb_range_t)kallsyms_lookup_name("smaps_hugetlb_range");
+    shmem_swap_usage_ptr = 
+        (shmem_swap_usage_t)kallsyms_lookup_name("shmem_swap_usage");
 
-    if (!walk_page_range_ptr || !smaps_pte_hole_ptr || !smaps_pte_range_ptr || !smaps_hugetlb_range_ptr) {
+    if (!walk_page_range_ptr || !smaps_pte_hole_ptr || !smaps_pte_range_ptr || !smaps_hugetlb_range_ptr || !shmem_swap_usage_ptr) {
         return -ENOENT;
     }
 
@@ -69,39 +68,51 @@ static int resolve_non_exported_symbols(void)
 static void my_smap_gather_stats(struct vm_area_struct *vma,
         struct mem_size_stats *mss, unsigned long start, unsigned long end)
 {
+    printk("Start my_smap_gather_stats\n");
     struct mm_walk_ops smaps_walk_ops = {
         .pmd_entry		= smaps_pte_range_ptr,
         .hugetlb_entry		= smaps_hugetlb_range_ptr,
     };
 	const struct mm_walk_ops *ops = &smaps_walk_ops;
+    printk("Set smaps_walk_ops\n");
 
+    printk("vma->vm_start = %lu\n", vma->vm_start);
+    printk("vma->vm_end = %lu\n", vma->vm_end);
 	/* Invalid start */
 	if (start >= vma->vm_end) {
         printk("start >= vma->vm_end\n");
 		return;
     }
 
+    printk("Before Inside CONFIG_SHMEM\n");
 #ifdef CONFIG_SHMEM
-	// if (vma->vm_file && shmem_mapping(vma->vm_file->f_mapping)) {
-	// 	/*
-	// 	 * For shared or readonly shmem mappings we know that all
-	// 	 * swapped out pages belong to the shmem object, and we can
-	// 	 * obtain the swap value much more efficiently. For private
-	// 	 * writable mappings, we might have COW pages that are
-	// 	 * not affected by the parent swapped out pages of the shmem
-	// 	 * object, so we have to distinguish them during the page walk.
-	// 	 * Unless we know that the shmem object (or the part mapped by
-	// 	 * our VMA) has no swapped out pages at all.
-	// 	 */
-	// 	unsigned long shmem_swapped = shmem_swap_usage(vma);
- // 
-	// 	if (!start && (!shmem_swapped || (vma->vm_flags & VM_SHARED) ||
-	// 				!(vma->vm_flags & VM_WRITE))) {
-	// 		mss->swap += shmem_swapped;
-	// 	} else {
-	// 		ops = &smaps_shmem_walk_ops;
-	// 	}
-	// }
+    printk("Inside CONFIG_SHMEM\n");
+	if (vma->vm_file && shmem_mapping(vma->vm_file->f_mapping)) {
+		/*
+		 * For shared or readonly shmem mappings we know that all
+		 * swapped out pages belong to the shmem object, and we can
+		 * obtain the swap value much more efficiently. For private
+		 * writable mappings, we might have COW pages that are
+		 * not affected by the parent swapped out pages of the shmem
+		 * object, so we have to distinguish them during the page walk.
+		 * Unless we know that the shmem object (or the part mapped by
+		 * our VMA) has no swapped out pages at all.
+		 */
+        printk("Set shmem_swapped\n");
+		unsigned long shmem_swapped = shmem_swap_usage(vma);
+
+		if (!start && (!shmem_swapped || (vma->vm_flags & VM_SHARED) ||
+					!(vma->vm_flags & VM_WRITE))) {
+			mss->swap += shmem_swapped;
+		} else {
+            const struct mm_walk_ops smaps_shmem_walk_ops = {
+                .pmd_entry		= smaps_pte_range,
+                .hugetlb_entry		= smaps_hugetlb_range,
+                .pte_hole		= smaps_pte_hole,
+            };
+			ops = &smaps_shmem_walk_ops;
+		}
+	}
 #endif
 	/* mmap_lock is held in m_start */
     // TODO: start, endの範囲チェック
@@ -118,20 +129,17 @@ static void my_smap_gather_stats(struct vm_area_struct *vma,
  */
 static long module_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) 
 {
-
     struct module_values* val = (struct module_values *)arg;
 
-    int res = resolve_non_exported_symbols();
-    if (res) {
-        return -ENOENT;
-    }
-
     // pidからvmaを取得
+    printk("finding pid %d's task\n", val->pid);
     struct pid* pid = find_get_pid(val->pid);
     if (!pid) {
         printk("couldn't find pid %d's task\n", val->pid);
         return -1;
     }
+
+    printk("getting task\n", val->pid);
     struct task_struct* task = get_pid_task(pid, PIDTYPE_PID);
     if (!task) {
         printk("couldn't get task\n");
@@ -139,7 +147,15 @@ static long module_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     }
 
     // 任意アドレス空間rss取得
-    struct vm_area_struct* vma = task->mm->mmap_base;
+    // NOTE: ここらへんで壊れてそう
+    // struct vm_area_struct* vma = task->mm->mmap_base;
+    struct vm_area_struct* vma = find_vma(task->mm, val->addr_start);
+    if (!vma) {
+        printk("The vma is not found\n");
+        return -1;
+    }
+    printk("Found vma: ");
+    printk("%lu\n", vma->vm_start);
     struct mem_size_stats mss;
 
     memset(&mss, 0, sizeof(mss));
@@ -159,6 +175,11 @@ static struct file_operations module_fops = {
 static int __init module_initialize(void)
 {
     printk("Init rss_range\n");
+    int res = resolve_non_exported_symbols();
+    if (res) {
+        return -ENOENT;
+    }
+
     /* ★ カーネルに、本ドライバを登録する */
     register_chrdev(DRIVER_MAJOR, DRIVER_NAME, &module_fops);
     return 0;

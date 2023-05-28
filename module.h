@@ -34,6 +34,9 @@ typedef int (*smaps_hugetlb_range_t)(pte_t *pte, unsigned long hmask,
 				 unsigned long addr, unsigned long end,
 				 struct mm_walk *walk);
 smaps_hugetlb_range_t smaps_hugetlb_range_ptr;
+// shmem_swap_usage
+typedef unsigned long (*shmem_swap_usage_t)(struct vm_area_struct *vma);
+shmem_swap_usage_t shmem_swap_usage_ptr;
 
 static struct module_values {
     pid_t pid;
