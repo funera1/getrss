@@ -65,28 +65,31 @@ static int resolve_non_exported_symbols(void)
     return 0;
 }
 
+static void __show_smap(const struct mem_size_stats *mss)
+{
+#define PSS_SHIFT 12
+    printk("Rss: %lukB\n", mss->resident);
+    printk("Pss: %lukB\n", mss->pss >> PSS_SHIFT);
+    printk("Pss_Dirty: %lukB\n", mss->pss_dirty >> PSS_SHIFT);
+    printk("Anonymous: %lukB\n", mss->anonymous);
+#undef PSS_SHIFT
+}
+
 static void my_smap_gather_stats(struct vm_area_struct *vma,
         struct mem_size_stats *mss, unsigned long start, unsigned long end)
 {
-    printk("Start my_smap_gather_stats\n");
     struct mm_walk_ops smaps_walk_ops = {
         .pmd_entry		= smaps_pte_range_ptr,
         .hugetlb_entry		= smaps_hugetlb_range_ptr,
     };
 	const struct mm_walk_ops *ops = &smaps_walk_ops;
-    printk("Set smaps_walk_ops\n");
-
-    printk("vma->vm_start = %lu\n", vma->vm_start);
-    printk("vma->vm_end = %lu\n", vma->vm_end);
 	/* Invalid start */
 	if (start >= vma->vm_end) {
         printk("start >= vma->vm_end\n");
 		return;
     }
 
-    printk("Before Inside CONFIG_SHMEM\n");
 #ifdef CONFIG_SHMEM
-    printk("Inside CONFIG_SHMEM\n");
 	if (vma->vm_file && shmem_mapping(vma->vm_file->f_mapping)) {
 		/*
 		 * For shared or readonly shmem mappings we know that all
@@ -98,7 +101,6 @@ static void my_smap_gather_stats(struct vm_area_struct *vma,
 		 * Unless we know that the shmem object (or the part mapped by
 		 * our VMA) has no swapped out pages at all.
 		 */
-        printk("Set shmem_swapped\n");
 		unsigned long shmem_swapped = shmem_swap_usage(vma);
 
 		if (!start && (!shmem_swapped || (vma->vm_flags & VM_SHARED) ||
@@ -115,12 +117,12 @@ static void my_smap_gather_stats(struct vm_area_struct *vma,
 	}
 #endif
 	/* mmap_lock is held in m_start */
-    // TODO: start, endの範囲チェック
+	// if (!start)
+	// 	walk_page_vma(vma, ops, mss);
+	// else
     if (end > vma->vm_end)
         end = vma->vm_end;
-    printk("Start walk_page_range\n");
     walk_page_range(vma->vm_mm, start, end, ops, mss);
-    printk("End walk_page_range\n");
 }
 
 /*
@@ -132,14 +134,12 @@ static long module_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     struct module_values* val = (struct module_values *)arg;
 
     // pidからvmaを取得
-    printk("finding pid %d's task\n", val->pid);
     struct pid* pid = find_get_pid(val->pid);
     if (!pid) {
         printk("couldn't find pid %d's task\n", val->pid);
         return -1;
     }
 
-    printk("getting task\n", val->pid);
     struct task_struct* task = get_pid_task(pid, PIDTYPE_PID);
     if (!task) {
         printk("couldn't get task\n");
@@ -147,20 +147,18 @@ static long module_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     }
 
     // 任意アドレス空間rss取得
-    // NOTE: ここらへんで壊れてそう
-    // struct vm_area_struct* vma = task->mm->mmap_base;
     struct vm_area_struct* vma = find_vma(task->mm, val->addr_start);
     if (!vma) {
         printk("The vma is not found\n");
         return -1;
     }
-    printk("Found vma: ");
     printk("%lu\n", vma->vm_start);
     struct mem_size_stats mss;
 
     memset(&mss, 0, sizeof(mss));
-
     my_smap_gather_stats(vma, &mss, val->addr_start, val->addr_end);
+    __show_smap(&mss);
+
     return mss.resident;
 }
 
