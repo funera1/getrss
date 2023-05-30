@@ -1,54 +1,71 @@
-#include <linux/mm_types.h>
+#include <sched.h>
+#include <mm.h>
 
-static int show_smaps_rollup(struct seq_file *m, void *v)
+static void hold_task_mempolicy(struct task_struc *task)
 {
-	struct proc_maps_private *priv = m->private;
-	struct mem_size_stats mss;
-	struct mm_struct *mm = priv->mm;
-	struct vm_area_struct *vma;
-	unsigned long vma_start = 0, last_vma_end = 0;
-	int ret = 0;
-	VMA_ITERATOR(vmi, mm, 0);
+    task_lock(task);
+    task_mempolicy = get_task_policy(task);
+    mpol_get(task_mempolicy);
+    task_unlock(task);
+}
 
-	priv->task = get_proc_task(priv->inode);
-	if (!priv->task)
-		return -ESRCH;
+static void release_task_mempolicy(task)
+{
 
-	if (!mm || !mmget_not_zero(mm)) {
-		ret = -ESRCH;
-		goto out_put_task;
-	}
+}
 
-	memset(&mss, 0, sizeof(mss));
+static int get_smaps_range(struct task_struct* task, unsigned long start, unsigned long end)
+{
+    if(!task)
+        return -ESRCH;
 
-	ret = mmap_read_lock_killable(mm);
-	if (ret)
-		goto out_put_mm;
+    struct mem_size_stats mss;
+    struct mm_struct *mm = task->mm;
+    struct vm_area_struct *vma;
+    unsigned long vma_start = 0, last_vma_end = 0;
+    int ret = 0;
 
-	hold_task_mempolicy(priv);
-	vma = vma_next(&vmi);
+    // TODO: ここの意味考える & gotoの処理考える
+    if(!mm || !mmget_not_zero(mm)) {
+        ret = -ESRCH;
+        goto out_put_task;
+    }
 
-	if (unlikely(!vma))
-		goto empty_set;
+    memset(&mss, 0, sizeof(mss));
 
-	vma_start = vma->vm_start;
-	do {
-		smap_gather_stats(vma, &mss, 0);
-		last_vma_end = vma->vm_end;
+    ret = mmap_read_lock_killable(mm);
+    // TODO: gotoの処理考える
+    if (ret)
+        goto out_put_mm;
 
-		/*
-		 * Release mmap_lock temporarily if someone wants to
-		 * access it for write request.
-		 */
-		if (mmap_lock_is_contended(mm)) {
-			vma_iter_invalidate(&vmi);
-			mmap_read_unlock(mm);
-			ret = mmap_read_lock_killable(mm);
-			if (ret) {
-				release_task_mempolicy(priv);
-				goto out_put_mm;
-			}
+    // TODO: task_mempolicyの扱いをどうするか
+    hold_task_mempolicy(task);
+    vma = find_vma(mm, start);
 
+    // TODO: unlikely
+    if (unlikely(!vma))
+        goto empty_set;
+    
+    vma_start = start;
+    do {
+        my_smap_gather_stats(vma, &mss, vma_start, end);
+        last_vma_end = vma->vm_end;
+
+        // TODO: この関数何か調べる
+        if (mmap_lock_is_contended(mm)) {
+            // TODO: この関数何か調べる
+            vma_iter_invalidate();
+            // TODO: この関数何か調べる
+            mmap_read_unlock(mm);
+            ret = mmap_read_lock_killable(mm);
+            if (ret) {
+                // TODO: releaseの中身考える
+                release_task_mempolicy(task);
+                // TODO: gotoを考える
+                goto out_put_mm;
+            }
+
+            // TODO: これが言ってることちゃんと理解する
 			/*
 			 * After dropping the lock, there are four cases to
 			 * consider. See the following example for explanation.
@@ -85,36 +102,20 @@ static int show_smaps_rollup(struct seq_file *m, void *v)
 			 *    contains last_vma_end.
 			 *    Iterate VMA' from last_vma_end.
 			 */
-			vma = vma_next(&vmi);
-			/* Case 3 above */
-			if (!vma)
-				break;
+            vma = vma_next();
+            /* Case 3 above */
+            if (!vma)
+                break;
 
-			/* Case 1 and 2 above */
-			if (vma->vm_start >= last_vma_end)
-				continue;
+            /* Case 1 and 2 above */
+            if (vma->vm_start >= last_vma_end)
+                continue;
 
-			/* Case 4 above */
-			if (vma->vm_end > last_vma_end)
-				smap_gather_stats(vma, &mss, last_vma_end);
-		}
-	} for_each_vma(vmi, vma);
-
-empty_set:
-	show_vma_header_prefix(m, vma_start, last_vma_end, 0, 0, 0, 0);
-	seq_pad(m, ' ');
-	seq_puts(m, "[rollup]\n");
-
-	__show_smap(m, &mss, true);
-
-	release_task_mempolicy(priv);
-	mmap_read_unlock(mm);
-
-out_put_mm:
-	mmput(mm);
-out_put_task:
-	put_task_struct(priv->task);
-	priv->task = NULL;
-
-	return ret;
+            /* Case 4 above */
+            if (vma->vm_end > last_vma_end) {
+                // TODO: start, endの範囲について考える
+                my_smap_gather_stats(vma, &mss, last_vma_end);
+            }
+        }
+    } for_each_vma();
 }
