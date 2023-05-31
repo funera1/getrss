@@ -38,6 +38,17 @@ smaps_hugetlb_range_t smaps_hugetlb_range_ptr;
 typedef unsigned long (*shmem_swap_usage_t)(struct vm_area_struct *vma);
 shmem_swap_usage_t shmem_swap_usage_ptr;
 
+
+#define walk_page_range walk_page_range_ptr
+#define smaps_pte_hole smaps_pte_hole_ptr
+#define smaps_pte_range smaps_pte_range_ptr
+#define smaps_hugetlb_range smaps_hugetlb_range_ptr
+#define shmem_swap_usage shmem_swap_usage_ptr
+/* The MM code likes to work with exclusive end addresses */
+#define for_each_vma_range(__vmi, __vma, __end)				\
+	while (((__vma) = vma_find(&(__vmi), (__end))) != NULL)
+
+
 static struct module_values {
     pid_t pid;
     unsigned long addr_start;
@@ -68,3 +79,10 @@ struct mem_size_stats {
 	u64 swap_pss;
 };
 
+
+void smap_gather_stats_range(struct vm_area_struct *vma,
+        struct mem_size_stats *mss, unsigned long start, unsigned long end);
+
+int get_smaps_range(struct task_struct* task, struct mem_size_stats* mss, unsigned long start, unsigned long end);
+
+void __show_smap(const struct mem_size_stats *mss);
