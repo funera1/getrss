@@ -21,8 +21,11 @@
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("funera1");
 
-#define DRIVER_NAME "rss_range"
-#define DRIVER_MAJOR 64
+#define DEVICE_NAME "rss_range"
+#define DEVICE_MAJOR 64
+
+#define RSS_RANGE 0
+#define NEXT_VMA_PTR 1
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
 #define KPROBE_LOOKUP 1
@@ -122,6 +125,8 @@ static void my_smap_gather_stats(struct vm_area_struct *vma,
 	// else
     if (end > vma->vm_end)
         end = vma->vm_end;
+
+    printk("Search: [%lu, %lu]\n", start, end);
     walk_page_range(vma->vm_mm, start, end, ops, mss);
 }
 
@@ -153,13 +158,25 @@ static long module_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         return -1;
     }
     printk("%lu\n", vma->vm_start);
-    struct mem_size_stats mss;
 
-    memset(&mss, 0, sizeof(mss));
-    my_smap_gather_stats(vma, &mss, val->addr_start, val->addr_end);
-    __show_smap(&mss);
+    long res = 0;
+    switch (cmd) {
+        case RSS_RANGE:
+            struct mem_size_stats mss;
+            memset(&mss, 0, sizeof(mss));
+            my_smap_gather_stats(vma, &mss, val->addr_start, val->addr_end);
+            __show_smap(&mss);
+            res = mss.resident;
+            break;
 
-    return mss.resident;
+        case NEXT_VMA_PTR:
+            printk("next vma ptr is %lx\n", vma->vm_start);
+            res = vma->vm_start;
+            break;
+    }
+
+    put_task_struct(task);
+    return res;
 }
 
 static struct file_operations module_fops = {
@@ -167,8 +184,8 @@ static struct file_operations module_fops = {
   .unlocked_ioctl = module_ioctl
 };
 
-// static dev_t dev_id;
-// static struct cdev c_dev;
+static dev_t dev_id;
+static struct cdev c_dev;
 
 static int __init module_initialize(void)
 {
@@ -179,28 +196,27 @@ static int __init module_initialize(void)
     }
 
     /* ★ カーネルに、本ドライバを登録する */
-    register_chrdev(DRIVER_MAJOR, DRIVER_NAME, &module_fops);
-    return 0;
-  // if (alloc_chrdev_region(&dev_id, 0, 1, DEVICE_NAME))
-  //   return -EBUSY;
-  // 
-  // cdev_init(&c_dev, &module_fops);
-  // c_dev.owner = THIS_MODULE;
-  // 
-  // if (cdev_add(&c_dev, dev_id, 1)) {
-  //   unregister_chrdev_region(dev_id, 1);
-  //   return -EBUSY;
-  // }
+    register_chrdev(DEVICE_MAJOR, DEVICE_NAME, &module_fops);
+    if (alloc_chrdev_region(&dev_id, 0, 1, DEVICE_NAME))
+        return -EBUSY;
 
-  return 0;
+    cdev_init(&c_dev, &module_fops);
+    c_dev.owner = THIS_MODULE;
+
+    if (cdev_add(&c_dev, dev_id, 1)) {
+        unregister_chrdev_region(dev_id, 1);
+        return -EBUSY;
+    }
+
+    return 0;
 }
 
 static void __exit module_cleanup(void)
 {
     printk("Exit rss_range\n");
-    unregister_chrdev(DRIVER_MAJOR, DRIVER_NAME);
-  // cdev_del(&c_dev);
-  // unregister_chrdev_region(dev_id, 1);
+    unregister_chrdev(DEVICE_MAJOR, DEVICE_NAME);
+    cdev_del(&c_dev);
+    unregister_chrdev_region(dev_id, 1);
 }
 
 module_init(module_initialize);
