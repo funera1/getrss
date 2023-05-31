@@ -93,7 +93,8 @@ static long module_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     printk("Start get_smaps_range\n");
     int ret = get_smaps_range(task, &mss, val->addr_start, val->addr_end);
     put_task_struct(task);
-    if (!ret) {
+
+    if (ret) {
         printk("Couldn't get smaps range\n");
         return -1;
     }
@@ -109,7 +110,7 @@ static long module_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     // smap_gather_stats_range(vma, &mss, val->addr_start, val->addr_end);
     __show_smap(&mss);
 
-    return 0;
+    return mss.resident;
 }
 
 static struct file_operations module_fops = {
@@ -248,6 +249,7 @@ int get_smaps_range(struct task_struct* task, struct mem_size_stats* mss, unsign
     do {
         smap_gather_stats_range(vma, mss, vma_start, end);
         last_vma_end = vma->vm_end;
+        printk("[%lu, %lu]\n", vma_start, last_vma_end);
 
         if (mmap_lock_is_contended(mm)) {
             // TODO: この関数何か調べる
@@ -256,6 +258,7 @@ int get_smaps_range(struct task_struct* task, struct mem_size_stats* mss, unsign
             ret = mmap_read_lock_killable(mm);
             if (ret) {
                 // TODO: gotoを考える
+                printk("Not mmap_read_lock_killable\n");
                 goto out_put_mm;
             }
 
@@ -297,21 +300,24 @@ int get_smaps_range(struct task_struct* task, struct mem_size_stats* mss, unsign
 			 */
             vma = vma_next(&vmi);
             /* Case 3 above */
-            if (!vma)
+            if (!vma) {
+                printk("!vma\n");
                 break;
+            }
 
             /* Case 1 and 2 above */
-            if (vma->vm_start >= last_vma_end)
+            if (vma->vm_start >= last_vma_end) {
+                printk("vma->vm_start >= last_vma_end\n");
                 continue;
+            }
 
             /* Case 4 above */
             if (vma->vm_end > last_vma_end) {
-                // TODO: start, endの範囲について考える
                 smap_gather_stats_range(vma, mss, last_vma_end, end);
             }
         }
     } for_each_vma_range(vmi, vma, end);
-
+printk("End for_each_vma_range\n");
 
 empty_set:
     __show_smap(mss);
