@@ -15,9 +15,15 @@ int main()
 {
     int fd;
     struct module_values values;
-    scanf("%d", &values.pid);
-    scanf("%lu", &values.addr_start);
-    scanf("%lu", &values.addr_end);
+    // scanf("%d", &values.pid);
+    // scanf("%lu", &values.addr_start);
+    // scanf("%lu", &values.addr_end);
+    values.pid = 1704;
+
+    // Kbytes 160
+    values.addr_start = 0x00007f421ec28000;
+    values.addr_end = values.addr_start + 10;
+    // values.addr_end = 0x00007fc00d9bd000-100;
 
     if ((fd = open("/dev/rss_range", O_RDWR)) < 0) perror("open");
 

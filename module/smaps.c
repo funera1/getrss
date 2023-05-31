@@ -1,8 +1,10 @@
 #include <linux/sched.h>
 #include <linux/mm.h>
+#include <linux/shmem_fs.h>
 #include <linux/mm_types.h>
 #include <linux/compiler.h>
-#include "module.h"
+// #include "module.h"
+#include "smaps.h"
 
 // static void hold_task_mempolicy(struct task_struc *task)
 // {
@@ -16,6 +18,7 @@
 // {
 // 
 // }
+
 
 void __show_smap(const struct mem_size_stats *mss)
 {
@@ -88,21 +91,17 @@ int get_smaps_range(struct task_struct* task, struct mem_size_stats* mss, unsign
     int ret = 0;
     VMA_ITERATOR(vmi, mm, start);
 
-    // TODO: ここの意味考える & gotoの処理考える
     if(!mm || !mmget_not_zero(mm)) {
         ret = -ESRCH;
         return ret;
     }
 
     ret = mmap_read_lock_killable(mm);
-    // TODO: gotoの処理考える
     if (ret)
         goto out_put_mm;
 
-    // TODO: task_mempolicyの扱いをどうするか
     vma = vma_next(&vmi);
 
-    // TODO: unlikely
     if (unlikely(!vma))
         goto empty_set;
     
