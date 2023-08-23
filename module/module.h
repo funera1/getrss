@@ -9,6 +9,7 @@
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/mm_types.h>
+#include <linux/maple_tree.h>
 #include <linux/mempolicy.h>
 #include <linux/pid.h>
 #include <linux/pagewalk.h>
@@ -37,6 +38,29 @@ smaps_hugetlb_range_t smaps_hugetlb_range_ptr;
 // shmem_swap_usage
 typedef unsigned long (*shmem_swap_usage_t)(struct vm_area_struct *vma);
 shmem_swap_usage_t shmem_swap_usage_ptr;
+// vma_iter_invalidate
+typedef void (*vma_iter_invalidate_t)(struct vma_iterator *vmi);
+vma_iter_invalidate_t vma_iter_invalidate_ptr;
+
+#define walk_page_range walk_page_range_ptr
+#define smaps_pte_hole smaps_pte_hole_ptr
+#define smaps_pte_range smaps_pte_range_ptr
+#define smaps_hugetlb_range smaps_hugetlb_range_ptr
+#define shmem_swap_usage shmem_swap_usage_ptr
+#define vma_iter_invalidate vma_iter_invalidate_ptr
+/* The MM code likes to work with exclusive end addresses */
+#define for_each_vma_range(__vmi, __vma, __end)				\
+	while (((__vma) = vma_find(&(__vmi), (__end))) != NULL)
+
+#define VMA_ITERATOR(name, __mm, __addr)				\
+	struct vma_iterator name = {				        \
+		.mas = {						                \
+			.tree = &(__mm)->mm_mt,				        \
+			.index = __addr,				            \
+			.node = MAS_START,				            \
+		},							                    \
+	}
+
 
 static struct module_values {
     pid_t pid;
@@ -68,3 +92,7 @@ struct mem_size_stats {
 	u64 swap_pss;
 };
 
+void smap_gather_stats_range(struct vm_area_struct *vma,
+        struct mem_size_stats *mss, unsigned long start, unsigned long end);
+int get_smaps_range(struct task_struct* task, struct mem_size_stats* mss, unsigned long start, unsigned long end);
+void __show_smap(const struct mem_size_stats *mss);
