@@ -3,21 +3,8 @@
 #include <linux/shmem_fs.h>
 #include <linux/mm_types.h>
 #include <linux/compiler.h>
-// #include "module.h"
 #include "smaps.h"
 
-// static void hold_task_mempolicy(struct task_struc *task)
-// {
-//     task_lock(task);
-//     task_mempolicy = get_task_policy(task);
-//     mpol_get(task_mempolicy);
-//     task_unlock(task);
-// }
-// 
-// static void release_task_mempolicy(task)
-// {
-// 
-// }
 
 
 void __show_smap(const struct mem_size_stats *mss)
@@ -72,9 +59,6 @@ void smap_gather_stats_range(struct vm_area_struct *vma,
 	}
 #endif
 	/* mmap_lock is held in m_start */
-	// if (!start)
-	// 	walk_page_vma(vma, ops, mss);
-	// else
     if (end > vma->vm_end)
         end = vma->vm_end;
     walk_page_range(vma->vm_mm, start, end, ops, mss);

@@ -123,26 +123,13 @@ static struct file_operations module_fops = {
 
 static int __init module_initialize(void)
 {
-    printk("Init rss_range\n");
-    int res = resolve_non_exported_symbols();
-    if (res) {
-        return -ENOENT;
-    }
+  printk("Init rss_range\n");
+  int res = resolve_non_exported_symbols();
+  if (res) {
+    return -ENOENT;
+  }
 
-    /* ★ カーネルに、本ドライバを登録する */
-    register_chrdev(DRIVER_MAJOR, DRIVER_NAME, &module_fops);
-    return 0;
-  // if (alloc_chrdev_region(&dev_id, 0, 1, DEVICE_NAME))
-  //   return -EBUSY;
-  // 
-  // cdev_init(&c_dev, &module_fops);
-  // c_dev.owner = THIS_MODULE;
-  // 
-  // if (cdev_add(&c_dev, dev_id, 1)) {
-  //   unregister_chrdev_region(dev_id, 1);
-  //   return -EBUSY;
-  // }
-
+  register_chrdev(DRIVER_MAJOR, DRIVER_NAME, &module_fops);
   return 0;
 }
 
@@ -150,8 +137,6 @@ static void __exit module_cleanup(void)
 {
     printk("Exit rss_range\n");
     unregister_chrdev(DRIVER_MAJOR, DRIVER_NAME);
-  // cdev_del(&c_dev);
-  // unregister_chrdev_region(dev_id, 1);
 }
 
 module_init(module_initialize);
@@ -211,10 +196,6 @@ void smap_gather_stats_range(struct vm_area_struct *vma,
 		}
 	}
 #endif
-	/* mmap_lock is held in m_start */
-	// if (!start)
-	// 	walk_page_vma(vma, ops, mss);
-	// else
     if (end > vma->vm_end)
         end = vma->vm_end;
     walk_page_range(vma->vm_mm, start, end, ops, mss);
