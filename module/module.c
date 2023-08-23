@@ -21,8 +21,11 @@
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("funera1");
 
-#define DRIVER_NAME "rss_range"
-#define DRIVER_MAJOR 64
+#define DEVICE_NAME "rss_range"
+#define DEVICE_MAJOR 64
+
+#define RSS_RANGE 0
+#define NEXT_VMA_PTR 1
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
 #define KPROBE_LOOKUP 1
@@ -198,6 +201,8 @@ void smap_gather_stats_range(struct vm_area_struct *vma,
 #endif
     if (end > vma->vm_end)
         end = vma->vm_end;
+
+    printk("Search: [%lu, %lu]\n", start, end);
     walk_page_range(vma->vm_mm, start, end, ops, mss);
 }
 
